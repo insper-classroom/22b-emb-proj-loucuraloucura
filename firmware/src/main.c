@@ -13,23 +13,39 @@
 /* defines                                                              */
 /************************************************************************/
 
-// LEDs
-#define LED_PIO      PIOC
-#define LED_PIO_ID   ID_PIOC
-#define LED_IDX      8
-#define LED_IDX_MASK (1 << LED_IDX)
+typedef struct {
+	uint value;
+} adcData;
 
-// Botão
-#define BUT_PIO      PIOA
-#define BUT_PIO_ID   ID_PIOA
-#define BUT_IDX      11
-#define BUT_IDX_MASK (1 << BUT_IDX)
+#define BUT_PIO_RED            	PIOA
+#define BUT_PIO_ID_RED         	ID_PIOA
+#define BUT_IDX_RED            	3
+#define BUT_IDX_MASK_RED       	(1 << BUT_IDX_RED)
+
+#define BUT_PIO_YELLOW         	PIOA
+#define BUT_PIO_ID_YELLOW      	ID_PIOA
+#define BUT_IDX_YELLOW         	21
+#define BUT_IDX_MASK_YELLOW     (1 << BUT_IDX_YELLOW)
+
+#define BUT_PIO_GREEN          	PIOC
+#define BUT_PIO_ID_GREEN       	ID_PIOC
+#define BUT_IDX_GREEN          	13
+#define BUT_IDX_MASK_GREEN     	(1 << BUT_IDX_GREEN)
+
+#define BUT_PIO_BLUE          	PIOD
+#define BUT_PIO_ID_BLUE       	ID_PIOD
+#define BUT_IDX_BLUE          	11
+#define BUT_IDX_MASK_BLUE     	(1 << BUT_IDX_BLUE)
+
+#define AFEC_POT AFEC0
+#define AFEC_POT_ID ID_AFEC0
+#define AFEC_POT_CHANNEL 0 // Canal do pino PD30
 
 // usart (bluetooth ou serial)
 // Descomente para enviar dados
 // pela serial debug
 
-//#define DEBUG_SERIAL
+#define DEBUG_SERIAL
 
 #ifdef DEBUG_SERIAL
 #define USART_COM USART1
@@ -46,6 +62,9 @@
 #define TASK_BLUETOOTH_STACK_SIZE            (4096/sizeof(portSTACK_TYPE))
 #define TASK_BLUETOOTH_STACK_PRIORITY        (tskIDLE_PRIORITY)
 
+void task_bluetooth(void);
+void task_handshake(void);
+
 /************************************************************************/
 /* prototypes                                                           */
 /************************************************************************/
@@ -56,15 +75,17 @@ extern void vApplicationIdleHook(void);
 extern void vApplicationTickHook(void);
 extern void vApplicationMallocFailedHook(void);
 extern void xPortSysTickHandler(void);
-
+static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel,
+afec_callback_t callback);
 /************************************************************************/
 /* constants                                                            */
 /************************************************************************/
-
+QueueHandle_t xQueueComando;
+TimerHandle_t xTimer;
 /************************************************************************/
 /* variaveis globais                                                    */
 /************************************************************************/
-
+volatile char button1;
 /************************************************************************/
 /* RTOS application HOOK                                                */
 /************************************************************************/
@@ -102,6 +123,53 @@ extern void vApplicationMallocFailedHook(void) {
 /************************************************************************/
 /* handlers / callbacks                                                 */
 /************************************************************************/
+void vTimerCallback(TimerHandle_t xTimer) {
+	/* Selecina canal e inicializa conversão */
+	afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
+	afec_start_software_conversion(AFEC_POT);
+}
+void callback_azul(void){
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	if (!pio_get(BUT_PIO_BLUE, PIO_INPUT, BUT_IDX_MASK_BLUE)) {
+		button1 = '4';
+	} else {
+		button1 = '0';
+	}
+	xQueueSendFromISR(xQueueComando, &button1, &xHigherPriorityTaskWoken);
+}
+void callback_verde(void){
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	if (!pio_get(BUT_PIO_GREEN, PIO_INPUT, BUT_IDX_MASK_GREEN)) {
+		button1 = '3';
+	} else {
+		button1 = '0';
+	}
+	xQueueSendFromISR(xQueueComando, &button1, &xHigherPriorityTaskWoken);
+}
+void callback_amarelo(void){
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	if (!pio_get(BUT_PIO_YELLOW, PIO_INPUT, BUT_IDX_MASK_YELLOW)) {
+		button1 = '2';
+	} else {
+		button1 = '0';
+	}
+	xQueueSendFromISR(xQueueComando, &button1, &xHigherPriorityTaskWoken);
+}
+void callback_vermelho(void){
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	if (!pio_get(BUT_PIO_RED, PIO_INPUT, BUT_IDX_MASK_RED)) {
+		button1 = '1';
+	} else {
+		button1 = '0';
+	}
+	xQueueSendFromISR(xQueueComando, &button1, &xHigherPriorityTaskWoken);
+}
+static void AFEC_pot_callback(void) {
+	adcData adc;
+	adc.value = afec_channel_get_value(AFEC_POT, AFEC_POT_CHANNEL);
+	BaseType_t xHigherPriorityTaskWoken = pdTRUE;
+	//xQueueSendFromISR(, &adc, &xHigherPriorityTaskWoken);
+}
 
 /************************************************************************/
 /* funcoes                                                              */
@@ -109,13 +177,65 @@ extern void vApplicationMallocFailedHook(void) {
 
 void io_init(void) {
 
-	// Ativa PIOs
-	pmc_enable_periph_clk(LED_PIO_ID);
-	pmc_enable_periph_clk(BUT_PIO_ID);
 
-	// Configura Pinos
-	pio_configure(LED_PIO, PIO_OUTPUT_0, LED_IDX_MASK, PIO_DEFAULT | PIO_DEBOUNCE);
-	pio_configure(BUT_PIO, PIO_INPUT, BUT_IDX_MASK, PIO_PULLUP);
+	pmc_enable_periph_clk(BUT_PIO_ID_RED);
+	pmc_enable_periph_clk(BUT_PIO_ID_YELLOW);
+	pmc_enable_periph_clk(BUT_PIO_ID_GREEN);
+	pmc_enable_periph_clk(BUT_PIO_ID_BLUE);
+
+
+	pio_configure(BUT_PIO_RED, PIO_INPUT, BUT_IDX_MASK_RED, PIO_PULLUP | PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_PIO_RED, BUT_IDX_MASK_RED, 60);	
+	pio_configure(BUT_PIO_YELLOW, PIO_INPUT, BUT_IDX_MASK_YELLOW, PIO_PULLUP | PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_PIO_YELLOW, BUT_IDX_MASK_YELLOW, 60);	
+	pio_configure(BUT_PIO_GREEN, PIO_INPUT, BUT_IDX_MASK_GREEN, PIO_PULLUP | PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_PIO_GREEN, BUT_IDX_MASK_GREEN, 60);
+	pio_configure(BUT_PIO_BLUE, PIO_INPUT, BUT_IDX_MASK_BLUE, PIO_PULLUP | PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_PIO_BLUE, BUT_IDX_MASK_BLUE, 60);
+			
+	pio_handler_set(BUT_PIO_RED,
+					BUT_PIO_ID_RED,
+					BUT_IDX_MASK_RED,
+					PIO_IT_EDGE,
+					callback_vermelho);
+
+	pio_handler_set(BUT_PIO_YELLOW,
+					BUT_PIO_ID_YELLOW,
+					BUT_IDX_MASK_YELLOW,
+					PIO_IT_EDGE,
+					callback_amarelo);
+
+	pio_handler_set(BUT_PIO_GREEN,
+					BUT_PIO_ID_GREEN,
+					BUT_IDX_MASK_GREEN,
+					PIO_IT_EDGE,
+					callback_verde);
+	
+	pio_handler_set(BUT_PIO_BLUE,
+					BUT_PIO_ID_BLUE,
+					BUT_IDX_MASK_BLUE,
+					PIO_IT_EDGE,
+					callback_azul);
+
+	pio_enable_interrupt(BUT_PIO_RED, BUT_IDX_MASK_RED);
+	pio_enable_interrupt(BUT_PIO_YELLOW, BUT_IDX_MASK_YELLOW);
+	pio_enable_interrupt(BUT_PIO_GREEN, BUT_IDX_MASK_GREEN);
+	pio_enable_interrupt(BUT_PIO_BLUE, BUT_IDX_MASK_BLUE);
+	
+	pio_get_interrupt_status(BUT_PIO_RED);
+	pio_get_interrupt_status(BUT_PIO_YELLOW);
+	pio_get_interrupt_status(BUT_PIO_GREEN);
+	pio_get_interrupt_status(BUT_PIO_BLUE);
+
+	NVIC_EnableIRQ(BUT_PIO_ID_RED);
+	NVIC_EnableIRQ(BUT_PIO_ID_YELLOW);
+	NVIC_EnableIRQ(BUT_PIO_ID_GREEN);
+	NVIC_EnableIRQ(BUT_PIO_ID_BLUE);
+
+	NVIC_SetPriority(BUT_PIO_ID_RED, 4);
+	NVIC_SetPriority(BUT_PIO_ID_YELLOW, 4);
+	NVIC_SetPriority(BUT_PIO_ID_GREEN, 4);
+	NVIC_SetPriority(BUT_PIO_ID_BLUE, 4);
 }
 
 static void configure_console(void) {
@@ -201,50 +321,149 @@ int hc05_init(void) {
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
 	usart_send_command(USART_COM, buffer_rx, 1000, "AT", 100);
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
-	usart_send_command(USART_COM, buffer_rx, 1000, "AT+NAMEagoravai", 100);
+	usart_send_command(USART_COM, buffer_rx, 1000, "AT+NAMEDomDom", 100);
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
 	usart_send_command(USART_COM, buffer_rx, 1000, "AT", 100);
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
 	usart_send_command(USART_COM, buffer_rx, 1000, "AT+PIN0000", 100);
 }
+static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel,
+                            afec_callback_t callback) {
+  /*************************************
+   * Ativa e configura AFEC
+   *************************************/
+  /* Ativa AFEC - 0 */
+  afec_enable(afec);
+
+  /* struct de configuracao do AFEC */
+  struct afec_config afec_cfg;
+
+  /* Carrega parametros padrao */
+  afec_get_config_defaults(&afec_cfg);
+
+  /* Configura AFEC */
+  afec_init(afec, &afec_cfg);
+
+  /* Configura trigger por software */
+  afec_set_trigger(afec, AFEC_TRIG_SW);
+
+  /*** Configuracao específica do canal AFEC ***/
+  struct afec_ch_config afec_ch_cfg;
+  afec_ch_get_config_defaults(&afec_ch_cfg);
+  afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+  afec_ch_set_config(afec, afec_channel, &afec_ch_cfg);
+
+  /*
+  * Calibracao:
+  * Because the internal ADC offset is 0x200, it should cancel it and shift
+  down to 0.
+  */
+  afec_channel_set_analog_offset(afec, afec_channel, 0x200);
+
+  /***  Configura sensor de temperatura ***/
+  struct afec_temp_sensor_config afec_temp_sensor_cfg;
+
+  afec_temp_sensor_get_config_defaults(&afec_temp_sensor_cfg);
+  afec_temp_sensor_set_config(afec, &afec_temp_sensor_cfg);
+
+  /* configura IRQ */
+  afec_set_callback(afec, afec_channel, callback, 1);
+  NVIC_SetPriority(afec_id, 4);
+  NVIC_EnableIRQ(afec_id);
+}
 
 /************************************************************************/
 /* TASKS                                                                */
 /************************************************************************/
+void task_handshake(void) {
+	printf("Task HandShake started \n");
+	
+	printf("Inicializando HC05 \n");
+	
+	config_usart0();
+	hc05_init();
+	
+	
+	// configura LEDs e Botões
+	io_init();
+	
+	char eof = 'X';
+
+	char data = 'W';
+	while(!usart_is_tx_ready(USART_COM)) {
+		vTaskDelay(10 / portTICK_PERIOD_MS);
+	}
+	usart_write(USART_COM, data);
+	while(!usart_is_tx_ready(USART_COM)) {
+		vTaskDelay(10 / portTICK_PERIOD_MS);
+	}
+	usart_write(USART_COM, eof);
+	char resposta = 0;
+	
+	while(1) {
+		if (usart_read(USART_COM, &resposta) == 0) {
+			if (resposta == 'w') {
+				xTaskCreate(task_bluetooth, "BLT", TASK_BLUETOOTH_STACK_SIZE, NULL,	TASK_BLUETOOTH_STACK_PRIORITY, NULL);
+			}
+		}
+		else {
+			while(!usart_is_tx_ready(USART_COM)) {
+				vTaskDelay(10 / portTICK_PERIOD_MS);
+			}
+			usart_write(USART_COM, data);
+			while(!usart_is_tx_ready(USART_COM)) {
+				vTaskDelay(10 / portTICK_PERIOD_MS);
+			}
+			usart_write(USART_COM, eof);
+		}
+		
+		vTaskDelay(500 / portTICK_PERIOD_MS);
+	}
+}
 
 void task_bluetooth(void) {
 	printf("Task Bluetooth started \n");
 	
 	printf("Inicializando HC05 \n");
-	config_usart0();
-	hc05_init();
+	//config_usart0();
+	//hc05_init();
 
 	// configura LEDs e Botões
 	io_init();
+	
 
-	char button1 = '0';
+	
 	char eof = 'X';
+	button1 = '0';
 
+	//while(!usart_is_tx_ready(USART_COM)) {
+		//vTaskDelay(10 / portTICK_PERIOD_MS);
+	//}
+	
+	//usart_write(USART_COM, button1);
+	
+	// envia fim de pacote
+	//while(!usart_is_tx_ready(USART_COM)) {
+		//vTaskDelay(10 / portTICK_PERIOD_MS);
+	//}
+	//usart_write(USART_COM, eof);
+
+	char comando;
 	// Task não deve retornar.
 	while(1) {
-		// atualiza valor do botão
-		if(pio_get(BUT_PIO, PIO_INPUT, BUT_IDX_MASK) == 0) {
-			button1 = '1';
-		} else {
-			button1 = '0';
-		}
-
-		// envia status botão
-		while(!usart_is_tx_ready(USART_COM)) {
-			vTaskDelay(10 / portTICK_PERIOD_MS);
-		}
-		usart_write(USART_COM, button1);
+		//if (xQueueReceive(xQueueComando, &comando, 0)) {
+			// envia status botão
+			while(!usart_is_tx_ready(USART_COM)) {
+				vTaskDelay(10 / portTICK_PERIOD_MS);
+			}
+			usart_write(USART_COM, button1);
 		
-		// envia fim de pacote
-		while(!usart_is_tx_ready(USART_COM)) {
-			vTaskDelay(10 / portTICK_PERIOD_MS);
-		}
-		usart_write(USART_COM, eof);
+			// envia fim de pacote
+			while(!usart_is_tx_ready(USART_COM)) {
+				vTaskDelay(10 / portTICK_PERIOD_MS);
+			}
+			usart_write(USART_COM, eof);
+		//}
 
 		// dorme por 500 ms
 		vTaskDelay(500 / portTICK_PERIOD_MS);
@@ -263,7 +482,9 @@ int main(void) {
 	configure_console();
 
 	/* Create task to make led blink */
-	xTaskCreate(task_bluetooth, "BLT", TASK_BLUETOOTH_STACK_SIZE, NULL,	TASK_BLUETOOTH_STACK_PRIORITY, NULL);
+	if (xTaskCreate(task_handshake, "HSK", TASK_BLUETOOTH_STACK_SIZE, NULL,	TASK_BLUETOOTH_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Erro ao criar task handshake \n");
+	}
 
 	/* Start the scheduler. */
 	vTaskStartScheduler();
