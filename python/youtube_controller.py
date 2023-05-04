@@ -36,38 +36,61 @@ class SerialControllerInterface:
             logging.info("Mandando w de volta pro microship") 
         elif data == b'1':
             logging.info("PRESS T")
-            print("PRESS T")
-            pydirectinput.press('t')
+            pydirectinput.keyDown('t')
+        elif data == b'A':
+            logging.info("UNPRESS T")
+            pydirectinput.keyUp('t')
         elif data == b'2':
-            print("PRESS Y")
             logging.info("PRESS Y")
-            pydirectinput.press('y')
+            pydirectinput.keyDown('y')
+        elif data == b'B':
+            logging.info("UNPRESS Y")
+            pydirectinput.keyUp('y')
         elif data == b'3':
             logging.info("PRESS g")
-            pydirectinput.press('g')
+            pydirectinput.keyDown('g')
+        elif data == b'C':
+            logging.info("UNPRESS g")
+            pydirectinput.keyUp('g')
         elif data == b'4':
             logging.info("PRESS Y")
-            pydirectinput.press('h')
+            pydirectinput.keyDown('h')
+        elif data == b'D':
+            logging.info("UNPRESS Y")
+            pydirectinput.keyUp('h')
         elif data == b'5':
             logging.info("PRESS W")
-            pydirectinput.press('w')
+            pydirectinput.keyDown('w')
+        elif data == b'E':
+            logging.info("UNPRESS W")
+            pydirectinput.keyUp('w')
         elif data == b'6':
-            logging.info("PRESS A")
-            pydirectinput.press('a')
-        elif data == b'7':
             logging.info("PRESS S")
-            pydirectinput.press('s')
+            pydirectinput.keyDown('s')
+        elif data == b'F':
+            logging.info("UNPRESS S")
+            pydirectinput.keyUp('s')
+        elif data == b'7':
+            logging.info("PRESS A")
+            pydirectinput.keyDown('a')
+        elif data == b'G':
+            logging.info("UNPRESS A")
+            pydirectinput.keyUp('a')
         elif data == b'8':
             logging.info("PRESS D")
-            pydirectinput.press('d')
-        sessions = AudioUtilities.GetAllSessions()
-        for session in sessions:
-            interface = session.SimpleAudioVolume
-            if session.Process and session.Process.name() == self.process_name:
-                # only set volume in the range 0.0 to 1.0
-                self.volume = min(1.0, max(0.0, decibels))
-                interface.SetMasterVolume(self.volume, None)
-                print('Volume set to', self.volume)  # debug
+            pydirectinput.keyDown('d')
+        elif data == b'H':
+            logging.info("UNPRESS D")
+            pydirectinput.keyUp('d')
+        elif data == b'13':
+            sessions = AudioUtilities.GetAllSessions()
+            for session in sessions:
+                interface = session.SimpleAudioVolume
+                if session.Process and session.Process.name() == self.process_name:
+                    # only set volume in the range 0.0 to 1.0
+                    # self.volume = min(1.0, max(0.0, decibels))
+                    interface.SetMasterVolume(self.volume, None)
+                    print('Volume set to', self.volume)  # debug
 
         self.incoming = self.ser.read()
 
